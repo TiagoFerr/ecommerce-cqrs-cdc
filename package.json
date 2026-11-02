@@ -1,0 +1,9 @@
+{
+  "name": "ecommerce-cqrs-cdc",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "services/*",
+    "packages/*"
+  ]
+}
