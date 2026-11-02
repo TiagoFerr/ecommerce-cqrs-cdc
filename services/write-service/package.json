@@ -1,0 +1,24 @@
+{
+  "name": "@ecommerce/write-service",
+  "version": "1.0.0",
+  "private": true,
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@prisma/adapter-pg": "^7.10.1",
+    "@prisma/client": "^7.10.1",
+    "@types/node": "^26.6.6",
+    "dotenv": "^18.0.9",
+    "fastify": "^5.12.8",
+    "pg": "^8.23.1",
+    "prisma": "^7.10.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.23.1"
+  }
+}
