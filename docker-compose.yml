@@ -50,5 +50,21 @@ services:
       postgres:
         condition: service_healthy
 
+  api-gateway:
+    build:
+      context: .
+      dockerfile: services/api-gateway/Dockerfile
+    container_name: ecommerce_api_gateway
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - WRITE_SERVICE_URL=http://write-service:3001
+      - READ_SERVICE_URL=http://read-service:3002
+    depends_on:
+      - write-service
+      - read-service
+
 volumes:
   postgres_data:

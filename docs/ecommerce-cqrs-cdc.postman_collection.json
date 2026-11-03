@@ -1,28 +1,33 @@
 {
   "info": {
     "_postman_id": "b3e0e14a-71d5-4ad9-bce2-68b209e74ce9",
-    "name": "E-Commerce CQRS Lab",
-    "description": "Coleção de requisições para teste dos microsserviços de escrita (Write Service) e leitura (Read Service).",
+    "name": "E-Commerce CQRS Lab (via API Gateway)",
+    "description": "Coleção de requisições unificadas no API Gateway (Porta 3000). O Gateway roteia automaticamente Commands para o Write Service (3001) e Queries para o Read Service (3002).",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
     {
-      "name": "Write Service (Commands)",
+      "name": "API Gateway & Observability",
       "item": [
         {
-          "name": "Healthcheck Write Service",
+          "name": "Healthcheck Consolidado (Gateway + Downstream)",
           "request": {
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "http://localhost:3001/health",
+              "raw": "http://localhost:3000/health",
               "protocol": "http",
               "host": ["localhost"],
-              "port": "3001",
+              "port": "3000",
               "path": ["health"]
             }
           }
-        },
+        }
+      ]
+    },
+    {
+      "name": "Commands (Write Operations via Gateway)",
+      "item": [
         {
           "name": "Create Product",
           "request": {
@@ -38,10 +43,10 @@
               "raw": "{\n  \"name\": \"Teclado Mecânico RGB\",\n  \"description\": \"Switch Brown silencioso ABNT2\",\n  \"price\": 350.00,\n  \"stock\": 15\n}"
             },
             "url": {
-              "raw": "http://localhost:3001/products",
+              "raw": "http://localhost:3000/products",
               "protocol": "http",
               "host": ["localhost"],
-              "port": "3001",
+              "port": "3000",
               "path": ["products"]
             }
           }
@@ -61,10 +66,10 @@
               "raw": "{\n  \"customerName\": \"Tiago Ferreira\",\n  \"items\": [\n    {\n      \"productId\": \"COLE_AQUI_O_ID_DO_PRODUTO\",\n      \"quantity\": 2\n    }\n  ]\n}"
             },
             "url": {
-              "raw": "http://localhost:3001/orders",
+              "raw": "http://localhost:3000/orders",
               "protocol": "http",
               "host": ["localhost"],
-              "port": "3001",
+              "port": "3000",
               "path": ["orders"]
             }
           }
@@ -72,32 +77,18 @@
       ]
     },
     {
-      "name": "Read Service (Queries)",
+      "name": "Queries (Read Operations via Gateway)",
       "item": [
-        {
-          "name": "Healthcheck Read Service",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "http://localhost:3002/health",
-              "protocol": "http",
-              "host": ["localhost"],
-              "port": "3002",
-              "path": ["health"]
-            }
-          }
-        },
         {
           "name": "List Products (Filtros Opcionais)",
           "request": {
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "http://localhost:3002/products?search=Teclado&minPrice=100&maxPrice=500",
+              "raw": "http://localhost:3000/products?search=Teclado&minPrice=100&maxPrice=500",
               "protocol": "http",
               "host": ["localhost"],
-              "port": "3002",
+              "port": "3000",
               "path": ["products"],
               "query": [
                 {
@@ -122,10 +113,10 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "http://localhost:3002/products/:id",
+              "raw": "http://localhost:3000/products/:id",
               "protocol": "http",
               "host": ["localhost"],
-              "port": "3002",
+              "port": "3000",
               "path": ["products", ":id"],
               "variable": [
                 {
@@ -142,10 +133,10 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "http://localhost:3002/orders/:id",
+              "raw": "http://localhost:3000/orders/:id",
               "protocol": "http",
               "host": ["localhost"],
-              "port": "3002",
+              "port": "3000",
               "path": ["orders", ":id"],
               "variable": [
                 {
