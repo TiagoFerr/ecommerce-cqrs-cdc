@@ -1,0 +1,162 @@
+{
+  "info": {
+    "_postman_id": "b3e0e14a-71d5-4ad9-bce2-68b209e74ce9",
+    "name": "E-Commerce CQRS Lab",
+    "description": "Coleção de requisições para teste dos microsserviços de escrita (Write Service) e leitura (Read Service).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Write Service (Commands)",
+      "item": [
+        {
+          "name": "Healthcheck Write Service",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3001/health",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3001",
+              "path": ["health"]
+            }
+          }
+        },
+        {
+          "name": "Create Product",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Teclado Mecânico RGB\",\n  \"description\": \"Switch Brown silencioso ABNT2\",\n  \"price\": 350.00,\n  \"stock\": 15\n}"
+            },
+            "url": {
+              "raw": "http://localhost:3001/products",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3001",
+              "path": ["products"]
+            }
+          }
+        },
+        {
+          "name": "Create Order (ACID Check & Stock Deduction)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerName\": \"Tiago Ferreira\",\n  \"items\": [\n    {\n      \"productId\": \"COLE_AQUI_O_ID_DO_PRODUTO\",\n      \"quantity\": 2\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "http://localhost:3001/orders",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3001",
+              "path": ["orders"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Read Service (Queries)",
+      "item": [
+        {
+          "name": "Healthcheck Read Service",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3002/health",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3002",
+              "path": ["health"]
+            }
+          }
+        },
+        {
+          "name": "List Products (Filtros Opcionais)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3002/products?search=Teclado&minPrice=100&maxPrice=500",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3002",
+              "path": ["products"],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "Teclado"
+                },
+                {
+                  "key": "minPrice",
+                  "value": "100"
+                },
+                {
+                  "key": "maxPrice",
+                  "value": "500"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Product By ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3002/products/:id",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3002",
+              "path": ["products", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "COLE_AQUI_O_ID_DO_PRODUTO"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Order By ID (Aggregated Projection)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3002/orders/:id",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3002",
+              "path": ["orders", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "COLE_AQUI_O_ID_DO_PEDIDO"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
