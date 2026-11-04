@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # ==============================================================================
   # Storages & Data Layer
@@ -63,7 +61,7 @@ services:
   # Change Data Capture (Debezium Connect & Auto-Registration)
   # ==============================================================================
   debezium:
-    image: debezium/connect:2.7
+    image: quay.io/debezium/connect:latest
     container_name: ecommerce_debezium
     restart: always
     ports:
@@ -96,7 +94,7 @@ services:
   # Distributed Tracing & Observability (Jaeger All-In-One)
   # ==============================================================================
   jaeger:
-    image: jaegertracing/all-in-one:1.57
+    image: jaegertracing/all-in-one:latest
     container_name: ecommerce_jaeger
     restart: always
     ports:
