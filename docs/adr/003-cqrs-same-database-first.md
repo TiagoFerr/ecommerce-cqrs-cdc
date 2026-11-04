@@ -1,41 +1,41 @@
-# ADR 003: Segregação de Responsabilidade (CQRS) no Mesmo Banco de Dados Inicial
+# ADR 003: CQRS a Nível de Código no Mesmo Banco Inicial
 
 ## Status
 Aceito
 
 ## Contexto
-O padrão **CQRS** (*Command Query Responsibility Segregation*) estabelece que os caminhos de escrita (Commands) e de leitura (Queries) devem ser tratados como responsabilidades distintas. Frequentemente, arquitetos e desenvolvedores assumem erroneamente que implementar CQRS exige de imediato bancos de dados fisicamente separados, mensageria (Kafka/RabbitMQ) e consistência eventual.
+O padrão CQRS (*Command Query Responsibility Segregation*) prega a separação entre quem altera o estado do sistema (comandos) e quem apenas consulta (queries). 
 
-No entanto, introduzir dois bancos e mensageria no Dia 1 traz uma complexidade operacional imensa:
-* Consistência eventual precoce (o usuário cria um pedido e não o enxerga imediatamente).
-* Falhas de rede entre o broker e os workers de sincronização.
-* Sobrecarga de manutenção de infraestrutura antes da necessidade real de escala.
+Muitas implementações tentam pular etapas, introduzindo múltiplos bancos de dados (ex: Postgres + Mongo) e mensageria (Kafka/RabbitMQ) desde o primeiro commit. Para o estágio inicial do projeto, essa abordagem traz custos operacionais desnecessários:
+* **Consistência eventual imediata**: o usuário finaliza a compra e a listagem pode não refletir o pedido de imediato caso haja atraso na fila.
+* **Infraestrutura pesada**: necessidade de monitorar brokers, tratar mensagens mortas (dead-letter queues) e lidar com dessincronização entre bancos.
+* **Dificuldade de depuração**: rastrear bugs entre eventos assíncronos é muito mais complexo do que em chamadas diretas.
 
 ## Decisão
-Implementamos a **Fase 2 da evolução arquitetural com CQRS a nível de código/processo**, onde:
-1. O `write-service` executa comandos (`CreateProductCommand`, `CreateOrderCommand`), mantendo o modelo normalizado, validando regras de negócio e abrindo transações ACID.
-2. O `read-service` executa consultas (`ListProductsQuery`, `GetOrderByIdQuery`), otimizado para agregações, projeções e buscas parametrizadas.
-3. **Ambos os serviços leem e escrevem no mesmo banco relacional (PostgreSQL)** nesta fase.
+Na **Fase 2**, implementamos a segregação de responsabilidade **apenas a nível de código e processos**, mantendo ambos os serviços acessando a mesma instância do PostgreSQL:
+1. O `write-service` executa comandos (`CreateProductCommand`, `CreateOrderCommand`), mantendo o modelo normalizado e abrindo transações ACID.
+2. O `read-service` executa consultas (`ListProductsQuery`, `GetOrderByIdQuery`), focado em filtros, paginação e projeções de dados prontas para a tela.
+3. Não há escrita no serviço de leitura, nem listagens ou agregações no serviço de escrita.
 
 ```mermaid
 graph TD
-    Client[Cliente / Frontend] -->|Commands| WS[Write Service]
-    Client -->|Queries| RS[Read Service]
-    WS -->|ACID Transactions| PG[(PostgreSQL)]
-    RS -->|SELECT / Projections| PG
+    Client[Cliente / Gateway] -->|POST Commands| WS[Write Service]
+    Client -->|GET Queries| RS[Read Service]
+    WS -->|Transações ACID| PG[(PostgreSQL)]
+    RS -->|SELECT / Projeções| PG
 ```
 
-### Por que esta decisão é superior a um CRUD monolítico?
-* **Modelos Conceituais Distintos**: O Write Service não expõe rotas de listagem nem projeta views. O Read Service é estritamente *read-only* e não possui métodos de mutação.
-* **Escala Horizontal Desacoplada**: Podemos escalar o `read-service` com 5 containers para atender à alta taxa de leitura (proporção 95:5 em relação a compras), mantendo 1 instância do `write-service`.
-* **Zero Risco de Inconsistência**: Como compartilham o mesmo banco ACID, o cliente tem consistência forte imediata.
-* **Caminho Suave para Projeções Desnormalizadas**: Na Fase 4 e 5, o `read-service` poderá apontar para um banco NoSQL (ex: MongoDB) e receber eventos via CDC sem que o cliente ou o domínio de negócio sofram impacto estrutural.
+### Por que fazer assim primeiro?
+* **Separação conceitual limpa**: os modelos de domínio de escrita não se misturam com as necessidades de exibição das telas.
+* **Escala independente**: a leitura costuma ter um volume muito maior do que a compra. Podemos rodar mais réplicas do container de leitura sem precisar duplicar o serviço de escrita.
+* **Sem risco de inconsistência**: como o banco ainda é o mesmo, o cliente consulta o pedido com garantia de consistência forte.
+* **Facilidade de evolução**: quando migrarmos a leitura para MongoDB e mensageria nas fases 4 e 5, o contrato das queries já estará pronto e isolado, sem necessidade de reescrever a lógica das rotas.
 
 ## Consequências
 ### Positivas
-* Simplicidade de deploy e depuração inicial.
-* Não há latência de sincronização nem perda de eventos.
-* Código 100% alinhado com a semântica do CQRS (Commands retornam apenas identificadores/status; Queries retornam DTOs específicos de leitura).
+* Código organizado exatamente de acordo com os princípios de CQRS.
+* Testes simples e rápidos, sem depender de brokers de mensagens rodando localmente.
+* Zero latência de sincronização neste estágio.
 
-### Negativas / Mitigações
-* Ambos os serviços ainda competem por conexões e IOPS no mesmo PostgreSQL. Essa limitação será resolvida nas Fases 4 e 5 com o banco de leitura separado e CDC.
+### Negativas / Trade-offs
+* O banco de dados continua sendo um ponto único de contenção de conexões e I/O de disco. Essa divisão física de storages será realizada nas fases seguintes.

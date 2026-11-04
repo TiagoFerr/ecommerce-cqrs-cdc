@@ -1,30 +1,30 @@
-# ADR 002: Adoção do Prisma com Driver Adapter (@prisma/adapter-pg) no PostgreSQL
+# ADR 002: PostgreSQL com Driver Adapter no Prisma 7
 
 ## Status
 Aceito
 
 ## Contexto
-O serviço de escrita (`write-service`) lida com criação de produtos e checkout de pedidos. Essa operação envolve:
-1. Verificação de estoque concorrente.
-2. Baixa atômica de saldo no estoque.
-3. Criação do cabeçalho do pedido e de cada item associado.
-4. Rollback imediato se qualquer item falhar (garantias ACID).
+O `write-service` é responsável pela criação de produtos e checkout de pedidos. O checkout precisa garantir:
+1. Validação de estoque disponível antes da compra.
+2. Baixa atômica no estoque do produto.
+3. Criação do pedido e dos itens associados.
+4. Rollback imediato se qualquer item falhar ou se o estoque acabar durante a transação.
 
-O Prisma tradicional utiliza um engine nativo em Rust que gerencia as conexões internamente. Contudo, em ambientes de microsserviços modernos e com foco em alta eficiência de conexões no ecossistema Node.js, é desejável ter controle granular sobre o pool de conexões TCP via driver `pg` nativo.
+Historicamente, o Prisma usava um engine em Rust para gerenciar conexões com o banco através de um socket interno. Em arquiteturas com múltiplos microsserviços rodando em containers separados, isso dificultava limitar o número exato de conexões TCP que cada processo abria no PostgreSQL.
 
 ## Decisão
-Utilizamos o **Prisma ORM** com a funcionalidade de **Driver Adapters** (`@prisma/adapter-pg` integrado ao pool da biblioteca `pg`).
+Usamos o **Prisma 7** configurado com **Driver Adapter** (`@prisma/adapter-pg`), utilizando diretamente o pool da biblioteca `pg` do Node.js.
 
-### Por que esta abordagem?
-* **Pool de Conexões Especializado**: Permite configurar `max`, `idleTimeoutMillis` e `connectionTimeoutMillis` diretamente no driver `pg` do Node.js, respeitando limites de conexões do PostgreSQL em ambientes com múltiplos containers.
-* **Segurança de Migrations**: O Prisma CLI gerencia migrações SQL declarativas e reproduzíveis (`prisma/migrations`), facilitando a automação em CI/CD e testes.
-* **Transações Interativas Fortemente Tipadas**: `prisma.$transaction(async (tx) => { ... })` garante isolamento serializado ou read committed previsível com tipagem estrita para o schema relacional.
+### Motivos práticos:
+* **Controle direto do pool de conexões**: definimos parâmetros de conexões máximas (`max`) e timeouts de ociosidade diretamente no driver Node.js, evitando estourar o limite de conexões do PostgreSQL quando vários serviços sobem simultaneamente.
+* **Transações interativas tipadas**: usamos `prisma.$transaction(async (tx) => { ... })`, garantindo que o abatimento de estoque e a gravação do pedido ocorram sob a mesma transação ACID, sem precisar de SQL manual com `BEGIN/COMMIT`.
+* **Migrações reproduzíveis**: o histórico de alterações no banco fica versionado em arquivos SQL dentro de `prisma/migrations`, facilitando a execução automática em ambientes de teste e Docker.
 
 ## Consequências
 ### Positivas
-* Gestão transparente de conexões TCP entre Node.js e o PostgreSQL 16.
-* Tipagem automática dos modelos `Product`, `Order` e `OrderItem`.
-* Rastreamento e log de queries SQL diretamente no console durante o desenvolvimento.
+* Comportamento previsível de conexões TCP entre o Node.js e o PostgreSQL.
+* Rollback garantido em caso de estoque insuficiente ou erros no checkout.
+* Schema relacional fortemente tipado no TypeScript.
 
-### Negativas / Mitigações
-* A configuração exige instanciar explicitamente o `Pool` e o adaptador antes de passar ao `PrismaClient`. Esse setup foi encapsulado no arquivo de infraestrutura (`infrastructure/prisma.ts`).
+### Negativas / Trade-offs
+* O setup inicial é um pouco mais verboso, pois exige instanciar o `Pool` do `pg`, envelopar no adaptador do Prisma e passá-lo ao `PrismaClient`. Centralizamos essa lógica em `infrastructure/prisma.ts` para que os handlers não precisem lidar com detalhes de conexão.
