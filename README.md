@@ -1,6 +1,6 @@
 # E-Commerce CQRS & CDC Architecture Lab
 
-Laboratório de arquitetura distribuída demonstrando a implementação progressiva dos padrões **CQRS** (*Command Query Responsibility Segregation*), **API Gateway**, **Event-Driven Architecture** e **CDC** (*Change Data Capture* via Debezium e Outbox Pattern) utilizando Node.js, TypeScript, PostgreSQL, MongoDB e Docker.
+Laboratório de arquitetura distribuída demonstrando a implementação progressiva dos padrões **CQRS** (*Command Query Responsibility Segregation*), **API Gateway**, **Transactional Outbox Pattern**, **Change Data Capture (CDC)** com Debezium, **Apache Kafka (KRaft)** e persistência poliglota com **PostgreSQL** e **MongoDB**.
 
 ---
 
@@ -11,9 +11,9 @@ Em aplicações de comércio eletrônico, a proporção entre consultas de catá
 Manter leituras e escritas no mesmo banco relacional traz gargalos conhecidos:
 * **Concorrência de recursos**: consultas pesadas de busca e relatórios competem por CPU, memória e conexões com o checkout e a baixa de estoque.
 * **Modelos de dados opostos**: a escrita exige dados normalizados para garantir integridade e evitar inconsistências (ACID). A leitura se beneficia de dados desnormalizados e agregados para responder rápido sem múltiplos JOINs.
-* **Topologia interna exposta**: se o cliente precisar falar com portas e serviços diferentes para ler ou comprar, qualquer mudança no backend quebra o frontend.
+* **O Risco do Dual-Write**: tentar gravar no banco e enviar para a mensageria manualmente na aplicação cria falhas de consistência quando a rede ou o broker oscilam.
 
-Este projeto resolve esses pontos separando as rotas de comando das rotas de consulta, unificadas por um API Gateway.
+Este projeto resolve esses pontos separando as rotas de comando e consulta via API Gateway, garantindo sincronização confiável através do **Transactional Outbox Pattern** com **Debezium CDC** e **Kafka**.
 
 ---
 
@@ -24,29 +24,34 @@ Este projeto resolve esses pontos separando as rotas de comando das rotas de con
 | **Fase 1** | **Write Service + PostgreSQL**: Modelagem relacional, Commands, Handlers e transações ACID | 🟢 Concluído | `feature/phase-1-write-service-cqrs` |
 | **Fase 2** | **Read Service**: Segregação de Query Handlers no mesmo banco (CQRS a nível de código/processo) | 🟢 Concluído | `feature/phase-2-read-service` |
 | **Fase 3** | **API Gateway**: Roteamento transparente de comandos e queries em porta única (3000) | 🟢 Concluído | `feature/phase-3-api-gateway` |
-| **Fase 4** | **Banco de Leitura Separado**: MongoDB + Worker consumidor + Mensageria assíncrona | ⚪ Planejado | `feature/phase-4-read-db-messaging` |
-| **Fase 5** | **CDC com Debezium + Outbox Pattern**: Garantia de entrega atômica sem 2PC (*Two-Phase Commit*) | ⚪ Planejado | `feature/phase-5-cdc-outbox` |
-| **Fase 6** | **Observabilidade, Testes & CI/CD**: OpenTelemetry/Prometheus, testes automatizados e GitHub Actions | ⚪ Planejado | `feature/phase-6-observability-ci` |
+| **Fase 4** | **CDC, Outbox & Polyglot Persistence**: Transactional Outbox + Debezium + Kafka + MongoDB + Sync Worker | 🟢 Concluído | `feature/phase-4-cdc-kafka-mongo` |
+| **Fase 5** | **Observabilidade, Tracing Distribuído & Resiliência**: OpenTelemetry, métricas e pipeline de CI/CD | ⚪ Planejado | `feature/phase-5-observability-ci` |
 
 ---
 
-## 🏗️ Visão da Arquitetura Atual (Fase 3)
+## 🏗️ Visão da Arquitetura Completa (Fase 4)
 
 ```mermaid
-graph TD
+flowchart TD
     Client([Cliente / Web / Mobile / Postman]) -->|Porta 3000| Gateway[API Gateway - Fastify]
 
-    subgraph "Serviços Internos"
-        Gateway -->|POST /products, POST /orders| WS[Write Service - 3001]
-        Gateway -->|GET /products, GET /orders/:id| RS[Read Service - 3002]
-        
-        WS --> CH[Command Handlers: CreateProduct, CreateOrder]
-        RS --> QH[Query Handlers: ListProducts, GetProductById, GetOrderById]
+    subgraph "Escrita (Commands - Porta 3001)"
+        Gateway -->|POST /products, POST /orders| WS[Write Service]
+        WS -->|1. Mesma Transação ACID| PG[(PostgreSQL 16)]
+        PG -.-> Tab1[Tabelas: products, orders, order_items]
+        PG -.-> Tab2[Tabela: outbox]
     end
 
-    subgraph "Persistência Relacional"
-        CH -->|Transações ACID / Baixa de Estoque| PG[(PostgreSQL 16 - ecommerce_write)]
-        QH -->|SELECT / Projeções Agregadas| PG
+    subgraph "Pipeline Assíncrono de CDC & Mensageria"
+        PG -->|2. Streaming do WAL| Deb[Debezium Connect CDC]
+        Deb -->|3. Tópico: ecommerce_cdc.public.outbox| K[Apache Kafka KRaft]
+        K -->|4. Consumo Contínuo| SW[Sync Worker - Node.js]
+        SW -->|5. Projeção Desnormalizada Idempotente| Mongo[(MongoDB 7 - ecommerce_read)]
+    end
+
+    subgraph "Leitura (Queries - Porta 3002)"
+        Gateway -->|GET /products, GET /orders/:id| RS[Read Service]
+        RS -->|6. Consultas Diretas sem JOINs| Mongo
     end
 ```
 
@@ -56,7 +61,7 @@ graph TD
 
 ### Opção 1: Executar com Um Comando (Recomendado)
 
-O projeto está configurado no Docker Compose e roda as migrações automaticamente:
+O projeto está configurado no Docker Compose para subir todo o ecossistema distribuído de forma automatizada, incluindo migrações do banco e registro do conector CDC:
 
 ```bash
 docker compose up --build
@@ -64,40 +69,46 @@ docker compose up --build
 
 Serviços disponíveis após inicialização:
 * **API Gateway (Entrada única)**: `http://localhost:3000`
-* **Write Service (Comandos internos)**: `http://localhost:3001`
-* **Read Service (Consultas internas)**: `http://localhost:3002`
-* **PostgreSQL**: `localhost:5432`
+* **Write Service (Comandos de escrita)**: `http://localhost:3001`
+* **Read Service (Consultas MongoDB)**: `http://localhost:3002`
+* **Debezium Connect REST API**: `http://localhost:8083`
+* **PostgreSQL (Storage transacional)**: `localhost:5432`
+* **MongoDB (Storage de leitura)**: `localhost:27017`
+* **Apache Kafka (Message broker)**: `localhost:9092`
 
 ---
 
 ### Opção 2: Execução Manual para Desenvolvimento
 
-1. **Subir o PostgreSQL:**
+1. **Subir os storages e brokers no Docker:**
    ```bash
-   docker compose up -d postgres
+   docker compose up -d postgres mongodb kafka debezium debezium-init
    ```
 
-2. **Instalar dependências e compilar:**
+2. **Instalar dependências e compilar o monorepo:**
    ```bash
    npm install
    npm run build
    ```
 
-3. **Rodar migrações do Prisma:**
+3. **Rodar migrações do Prisma no Write Service:**
    ```bash
    cd services/write-service
    npx prisma migrate dev
    ```
 
-4. **Iniciar os serviços:**
+4. **Iniciar os microsserviços e workers:**
    ```bash
    # Terminal 1 - Write Service (3001)
    npm run dev --workspace=@ecommerce/write-service
 
-   # Terminal 2 - Read Service (3002)
+   # Terminal 2 - Sync Worker (Consumidor Kafka)
+   npm run dev --workspace=@ecommerce/sync-worker
+
+   # Terminal 3 - Read Service (3002)
    npm run dev --workspace=@ecommerce/read-service
 
-   # Terminal 3 - API Gateway (3000)
+   # Terminal 4 - API Gateway (3000)
    npm run dev --workspace=@ecommerce/api-gateway
    ```
 
@@ -105,7 +116,7 @@ Serviços disponíveis após inicialização:
 
 ## 🧪 Testes Automatizados
 
-O monorepo conta com **20 testes automatizados** cobrindo regras de negócio, transações com rollback, projeções e roteamento reverso:
+O monorepo conta com **23 testes automatizados** cobrindo regras de negócio, transações com outbox, parse de envelopes Debezium CDC, projeções MongoDB e roteamento do Gateway:
 
 ```bash
 npm test
@@ -120,14 +131,12 @@ Pipeline contínuo configurado no GitHub Actions em [`.github/workflows/ci.yml`]
 Importe a coleção do Postman:
 📁 [`docs/ecommerce-cqrs-cdc.postman_collection.json`](./docs/ecommerce-cqrs-cdc.postman_collection.json)
 
-> **Observação:** Todas as chamadas apontam para a porta `3000`. O Gateway inspeciona o método HTTP e encaminha a requisição para o serviço correto.
-
 ### 1. Healthcheck Consolidado
 ```bash
 curl http://localhost:3000/health
 ```
 
-### 2. Criar Produto (Command -> Write Service)
+### 2. Criar Produto (Command -> Write Service -> Outbox -> Debezium -> Kafka -> Mongo)
 ```bash
 curl -X POST http://localhost:3000/products \
   -H "Content-Type: application/json" \
@@ -139,7 +148,7 @@ curl -X POST http://localhost:3000/products \
   }'
 ```
 
-### 3. Criar Pedido com Baixa de Estoque (Command -> Write Service)
+### 3. Criar Pedido com Baixa de Estoque e Registro Outbox
 ```bash
 curl -X POST http://localhost:3000/orders \
   -H "Content-Type: application/json" \
@@ -154,12 +163,12 @@ curl -X POST http://localhost:3000/orders \
   }'
 ```
 
-### 4. Listar Produtos com Filtros (Query -> Read Service)
+### 4. Listar Produtos Diretamente do MongoDB (Query -> Read Service)
 ```bash
 curl "http://localhost:3000/products?search=Teclado&minPrice=100&maxPrice=500"
 ```
 
-### 5. Consultar Pedido com Projeções Agregadas (Query -> Read Service)
+### 5. Consultar Pedido com Dados Desnormalizados do MongoDB (Query -> Read Service)
 ```bash
 curl "http://localhost:3000/orders/<ORDER_ID>"
 ```
@@ -172,6 +181,7 @@ curl "http://localhost:3000/orders/<ORDER_ID>"
 * [ADR 002 - PostgreSQL com Driver Adapter no Prisma 7](./docs/adr/002-prisma-pg-adapter.md)
 * [ADR 003 - CQRS a Nível de Código no Mesmo Banco Inicial](./docs/adr/003-cqrs-same-database-first.md)
 * [ADR 004 - API Gateway com Fastify e Proxy Reverso](./docs/adr/004-api-gateway-reverse-proxy.md)
+* [ADR 005 - Eliminação do Dual-Write com Transactional Outbox e Debezium CDC](./docs/adr/005-transactional-outbox-cdc.md)
 
 ---
 
