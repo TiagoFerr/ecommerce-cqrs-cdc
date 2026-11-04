@@ -5,7 +5,7 @@ import { CreateOrderCommand } from '../commands/create-order.command.js';
 export class CreateOrderHandler {
   constructor(private readonly db = prisma) {}
 
-  async execute(command: CreateOrderCommand) {
+  async execute(command: CreateOrderCommand, metadata?: { traceparent?: string }) {
     if (!command.customerName || command.customerName.trim() === '') {
       throw new Error('Customer name is required');
     }
@@ -91,7 +91,10 @@ export class CreateOrderHandler {
           aggregateType: 'Order',
           aggregateId: order.id,
           eventType: 'OrderCreated',
-          payload: orderDto,
+          payload: {
+            ...orderDto,
+            ...(metadata?.traceparent ? { traceparent: metadata.traceparent } : {}),
+          },
         },
       });
 

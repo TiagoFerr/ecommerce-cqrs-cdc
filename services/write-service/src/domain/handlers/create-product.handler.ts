@@ -5,7 +5,7 @@ import { CreateProductCommand } from '../commands/create-product.command.js';
 export class CreateProductHandler {
   constructor(private readonly db = prisma) {}
 
-  async execute(command: CreateProductCommand) {
+  async execute(command: CreateProductCommand, metadata?: { traceparent?: string }) {
     if (!command.name || command.name.trim() === '') {
       throw new Error('Product name is required');
     }
@@ -45,6 +45,7 @@ export class CreateProductHandler {
             price: Number(product.price),
             stock: product.stock,
             createdAt: product.createdAt,
+            ...(metadata?.traceparent ? { traceparent: metadata.traceparent } : {}),
           },
         },
       });
