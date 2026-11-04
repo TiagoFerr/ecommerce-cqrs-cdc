@@ -1,28 +1,30 @@
-# ADR 001: Escolha do Fastify e TypeScript para os Microsserviços
+# ADR 001: Fastify e TypeScript para os Microsserviços
 
 ## Status
 Aceito
 
 ## Contexto
-Para um projeto que visa demonstrar padrões avançados de arquitetura de software (CQRS, Event-Driven, CDC), a escolha do runtime e do framework HTTP deve priorizar:
-1. **Baixa latência e alto throughput**: Microsserviços distribuídos realizam chamadas constantes entre si e com clientes.
-2. **Segurança de tipos em tempo de compilação**: O fluxo de dados entre *Commands*, *Queries*, *DTOs* e o banco de dados deve ser fortemente tipado para evitar erros de runtime em produção.
-3. **Ergonomia e ecossistema**: Suporte nativo a validação por schemas (JSON Schema), logging de alta performance (Pino) e ciclo de vida de plugins claro.
+O projeto divide as operações em microsserviços que se comunicam via HTTP. Precisamos de uma stack que garanta contratos rígidos de dados entre comandos e consultas, com inicialização rápida e baixo consumo de memória em contêineres Docker.
+
+O Express continua sendo o framework mais popular do Node.js, mas carrega limitações antigas:
+* Não trata erros em funções assíncronas nativamente (exige wrappers manuais ou middlewares extras para evitar que o processo trave em promises rejeitadas).
+* A serialização de JSON e o roteamento são mais lentos por não compilarem schemas previamente.
+* Não inclui logging estruturado por padrão.
 
 ## Decisão
-Adotamos **TypeScript** como linguagem padrão em todo o monorepo e **Fastify** como framework HTTP tanto para o `write-service` quanto para o `read-service`.
+Adotamos **TypeScript** e **Fastify** para todos os serviços internos e para o gateway.
 
-### Por que Fastify e não Express?
-* **Performance e Overhead**: O Fastify é até 2x mais rápido que o Express em benchmarks reais de throughput e serialização JSON, devido ao seu compilador interno de schema (`fast-json-stringify`).
-* **Ecossistema Moderno**: Suporte nativo a async/await sem necessidade de middleware para capturar erros em promises rejeitadas (problema crônico do Express 4).
-* **Logging Estruturado Integrado**: O Fastify vem com o logger `pino` por padrão, crucial para observabilidade e rastreamento em arquiteturas distribuídas.
-* **Encapsulamento de Plugins**: O modelo de plugins do Fastify permite organizar rotas e dependências com injeção limpa de contexto.
+### Motivos práticos:
+* **Suporte nativo a async/await**: o ciclo de vida de requisição do Fastify foi desenhado para promises, capturando erros sem código defensivo adicional.
+* **Logs estruturados com Pino**: o Fastify já vem com o Pino integrado, gerando logs em formato JSON prontos para ferramentas de observabilidade sem overhead extra.
+* **Serialização rápida**: o compilador interno de schemas (`fast-json-stringify`) agiliza a resposta de endpoints com payloads repetitivos.
+* **Tipagem de ponta a ponta**: interfaces compartilhadas de comandos, DTOs de leitura e respostas HTTP evitam erros comuns de tipagem em tempo de execução.
 
 ## Consequências
 ### Positivas
-* Tipagem de ponta a ponta desde os controllers/routes até os handlers e repositórios Prisma.
-* Inicialização rápida dos containers e baixo consumo de memória (~40MB por instância).
-* Logs em JSON estruturados prontos para ingestão em stacks de observabilidade (ex: Loki/ELK).
+* Menos código boilerplate para tratar erros e middlewares.
+* Baixo consumo de memória por container (~40MB em repouso).
+* Contratos explícitos entre o que entra na rota e o que o handler recebe.
 
-### Negativas / Mitigações
-* A comunidade do Express ainda é maior em tutoriais legados, porém o Fastify já é o padrão moderno no ecossistema Node.js corporativo.
+### Negativas / Trade-offs
+* O ecossistema de bibliotecas e plugins da comunidade para Express ainda é maior. Para as necessidades deste projeto (proxy, CORS, validação básica), os plugins oficiais do Fastify cobrem tudo sem necessidade de pacotes obscuros.
