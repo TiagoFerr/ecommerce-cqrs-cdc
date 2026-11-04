@@ -27,10 +27,6 @@ jobs:
         working-directory: services/write-service
         run: npx prisma generate
 
-      - name: Generate Prisma Client (Read Service)
-        working-directory: services/read-service
-        run: npx prisma generate
-
       - name: Build All Services
         run: npm run build
 

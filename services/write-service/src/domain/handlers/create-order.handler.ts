@@ -70,7 +70,7 @@ export class CreateOrderHandler {
         },
       });
 
-      return {
+      const orderDto = {
         id: order.id,
         customerName: order.customerName,
         totalAmount: Number(order.totalAmount),
@@ -83,6 +83,19 @@ export class CreateOrderHandler {
         })),
         createdAt: order.createdAt,
       };
+
+      // Transactional Outbox Pattern: Pedido e Evento gravados na mesma transação ACID (Zero Dual-Write)
+      await tx.outbox.create({
+        data: {
+          id: randomUUID(),
+          aggregateType: 'Order',
+          aggregateId: order.id,
+          eventType: 'OrderCreated',
+          payload: orderDto,
+        },
+      });
+
+      return orderDto;
     });
   }
 }

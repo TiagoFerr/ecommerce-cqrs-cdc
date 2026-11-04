@@ -12,7 +12,6 @@ RUN npm ci
 COPY services/read-service ./services/read-service
 
 WORKDIR /app/services/read-service
-RUN npx prisma generate
 RUN npm run build
 
 # Stage de execução final (leve e seguro)

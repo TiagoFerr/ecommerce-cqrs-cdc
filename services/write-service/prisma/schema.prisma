@@ -42,3 +42,15 @@ model OrderItem {
 
   @@map("order_items")
 }
+
+model Outbox {
+  id            String    @id @default(uuid())
+  aggregateType String
+  aggregateId   String
+  eventType     String
+  payload       Json
+  createdAt     DateTime  @default(now())
+  processedAt   DateTime?
+
+  @@map("outbox")
+}
