@@ -16,5 +16,6 @@ else
   curl -s -X POST -H "Accept:application/json" -H "Content-Type:application/json" \
     http://debezium:8083/connectors/ \
     -d @/scripts/debezium-postgres-connector.json
-  echo "\nConnector registered successfully!"
+  echo ""
+  echo "Connector registered successfully!"
 fi
