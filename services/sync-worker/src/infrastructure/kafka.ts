@@ -1,4 +1,4 @@
-import { Kafka, Consumer } from 'kafkajs';
+import { Kafka, Consumer, Producer } from 'kafkajs';
 import { config } from '../config.js';
 
 const kafka = new Kafka({
@@ -8,4 +8,8 @@ const kafka = new Kafka({
 
 export function createConsumer(): Consumer {
   return kafka.consumer({ groupId: config.kafka.groupId });
+}
+
+export function createProducer(): Producer {
+  return kafka.producer();
 }
