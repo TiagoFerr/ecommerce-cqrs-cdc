@@ -2,6 +2,10 @@
   "name": "ecommerce-cqrs-cdc",
   "version": "1.0.0",
   "private": true,
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspaces"
+  },
   "workspaces": [
     "services/*",
     "packages/*"

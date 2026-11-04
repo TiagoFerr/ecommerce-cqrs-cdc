@@ -17,8 +17,38 @@ services:
       test: ["CMD-SHELL", "pg_isready -u postgres -d ecommerce_write"]
       interval: 5s
       timeout: 5s
+      retries: 5
     command: ["postgres", "-c", "wal_level=logical"]
+
+  write-service:
+    build:
+      context: .
+      dockerfile: services/write-service/Dockerfile
+    container_name: ecommerce_write_service
+    restart: always
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/ecommerce_write?schema=public
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  read-service:
+    build:
+      context: .
+      dockerfile: services/read-service/Dockerfile
+    container_name: ecommerce_read_service
+    restart: always
+    ports:
+      - "3002:3002"
+    environment:
+      - PORT=3002
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/ecommerce_write?schema=public
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
   postgres_data:
-  
