@@ -10,7 +10,8 @@ export async function productRoutes(app: FastifyInstance) {
   app.post<{ Body: CreateProductCommand }>('/products', async (request, reply) => {
     try {
       const command: CreateProductCommand = request.body;
-      const result = await handler.execute(command);
+      const traceparent = request.headers['traceparent'] as string | undefined;
+      const result = await handler.execute(command, { traceparent });
       return reply.status(201).send(result);
     } catch (error: any) {
       return reply.status(400).send({
@@ -21,4 +22,3 @@ export async function productRoutes(app: FastifyInstance) {
     }
   });
 }
-

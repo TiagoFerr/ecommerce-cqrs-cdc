@@ -1,16 +1,83 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { EventProcessor } from '../src/domain/event-processor.js';
+import { EventProcessor, DlqPublisher, DlqPayload } from '../src/domain/event-processor.js';
 
-describe('EventProcessor (Debezium CDC to MongoDB Sync)', () => {
-  it('deve ignorar com segurança payloads vazios ou inválidos', async () => {
+describe('EventProcessor (Debezium CDC to MongoDB Sync & DLQ Resilience)', () => {
+  it('deve ignorar com segurança payloads vazios', async () => {
     const processor = new EventProcessor({} as any);
-
     const emptyRes = await processor.processRawMessage(null);
     assert.strictEqual(emptyRes.status, 'skipped_empty');
+  });
 
-    const invalidRes = await processor.processRawMessage('not-a-json');
-    assert.strictEqual(invalidRes.status, 'error_invalid_json');
+  it('deve rotear payload com JSON corrompido para a DLQ', async () => {
+    let capturedDlqPayload: DlqPayload | null = null;
+    const mockDlq: DlqPublisher = {
+      sendToDlq: async (payload) => {
+        capturedDlqPayload = payload;
+      },
+    };
+
+    const processor = new EventProcessor({} as any, mockDlq);
+    const result = await processor.processRawMessage('invalid-json-{corrupt');
+
+    assert.strictEqual(result.status, 'routed_to_dlq');
+    assert.strictEqual(result.reason, 'invalid_json');
+    assert.strictEqual(capturedDlqPayload?.reason, 'invalid_json');
+    assert.strictEqual(capturedDlqPayload?.rawPayload, 'invalid-json-{corrupt');
+  });
+
+  it('deve rotear mensagem malformada (sem aggregateType ou aggregateId) para a DLQ', async () => {
+    let capturedDlqPayload: DlqPayload | null = null;
+    const mockDlq: DlqPublisher = {
+      sendToDlq: async (payload) => {
+        capturedDlqPayload = payload;
+      },
+    };
+
+    const processor = new EventProcessor({} as any, mockDlq);
+    const poisonPillMessage = JSON.stringify({ someRandomField: 'unexpected_value' });
+    const result = await processor.processRawMessage(poisonPillMessage);
+
+    assert.strictEqual(result.status, 'routed_to_dlq');
+    assert.strictEqual(result.reason, 'invalid_outbox_format');
+    assert.strictEqual(capturedDlqPayload?.reason, 'invalid_outbox_format');
+  });
+
+  it('deve rotear para a DLQ quando a escrita no MongoDB falha', async () => {
+    let capturedDlqPayload: DlqPayload | null = null;
+    const mockDlq: DlqPublisher = {
+      sendToDlq: async (payload) => {
+        capturedDlqPayload = payload;
+      },
+    };
+
+    const failingDb = {
+      collection: () => ({
+        updateOne: async () => {
+          throw new Error('Mongo write conflict or connection timeout');
+        },
+      }),
+    };
+
+    const processor = new EventProcessor(failingDb as any, mockDlq);
+    const debeziumMessage = JSON.stringify({
+      payload: {
+        after: {
+          id: 'outbox-uuid-fail',
+          aggregateType: 'Product',
+          aggregateId: 'prod-fail',
+          eventType: 'ProductCreated',
+          payload: { id: 'prod-fail', name: 'Falha' },
+        },
+      },
+    });
+
+    const result = await processor.processRawMessage(debeziumMessage);
+
+    assert.strictEqual(result.status, 'routed_to_dlq');
+    assert.strictEqual(result.reason, 'mongo_write_error');
+    assert.strictEqual(capturedDlqPayload?.reason, 'mongo_write_error');
+    assert.strictEqual(capturedDlqPayload?.error, 'Mongo write conflict or connection timeout');
   });
 
   it('deve processar evento CDC do Debezium e projetar Produto no MongoDB', async () => {
@@ -47,6 +114,7 @@ describe('EventProcessor (Debezium CDC to MongoDB Sync)', () => {
             name: 'Cadeira Gamer Ergonômica',
             price: 1200,
             stock: 8,
+            traceparent: '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01',
           },
         },
         op: 'c',
