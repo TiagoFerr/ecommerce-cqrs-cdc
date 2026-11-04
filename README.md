@@ -1,6 +1,6 @@
 # E-Commerce CQRS & CDC Architecture Lab
 
-Laboratório de arquitetura distribuída demonstrando a implementação progressiva dos padrões **CQRS** (*Command Query Responsibility Segregation*), **API Gateway**, **Transactional Outbox Pattern**, **Change Data Capture (CDC)** com Debezium, **Apache Kafka (KRaft)** e persistência poliglota com **PostgreSQL** e **MongoDB**.
+Laboratório de arquitetura distribuída demonstrando a implementação progressiva dos padrões **CQRS** (*Command Query Responsibility Segregation*), **API Gateway**, **Transactional Outbox Pattern**, **Change Data Capture (CDC)** com Debezium, **Apache Kafka (KRaft)**, persistência poliglota com **PostgreSQL** e **MongoDB**, e **Observabilidade Distribuída** com **OpenTelemetry** e **Jaeger**.
 
 ---
 
@@ -12,8 +12,9 @@ Manter leituras e escritas no mesmo banco relacional traz gargalos conhecidos:
 * **Concorrência de recursos**: consultas pesadas de busca e relatórios competem por CPU, memória e conexões com o checkout e a baixa de estoque.
 * **Modelos de dados opostos**: a escrita exige dados normalizados para garantir integridade e evitar inconsistências (ACID). A leitura se beneficia de dados desnormalizados e agregados para responder rápido sem múltiplos JOINs.
 * **O Risco do Dual-Write**: tentar gravar no banco e enviar para a mensageria manualmente na aplicação cria falhas de consistência quando a rede ou o broker oscilam.
+* **Invisibilidade em Pipelines Assíncronos**: em sistemas orientados a eventos, rastrear onde uma mensagem travou ou calcular o tempo exato de propagação exige instrumentação padronizada (OpenTelemetry) e proteção contra poison pills (Dead Letter Queue).
 
-Este projeto resolve esses pontos separando as rotas de comando e consulta via API Gateway, garantindo sincronização confiável através do **Transactional Outbox Pattern** com **Debezium CDC** e **Kafka**.
+Este projeto resolve esses pontos separando as rotas de comando e consulta via API Gateway, garantindo sincronização confiável através do **Transactional Outbox Pattern** com **Debezium CDC**, **Kafka**, isolamento via **DLQ** e rastreamento com **OpenTelemetry**.
 
 ---
 
@@ -25,33 +26,41 @@ Este projeto resolve esses pontos separando as rotas de comando e consulta via A
 | **Fase 2** | **Read Service**: Segregação de Query Handlers no mesmo banco (CQRS a nível de código/processo) | 🟢 Concluído | `feature/phase-2-read-service` |
 | **Fase 3** | **API Gateway**: Roteamento transparente de comandos e queries em porta única (3000) | 🟢 Concluído | `feature/phase-3-api-gateway` |
 | **Fase 4** | **CDC, Outbox & Polyglot Persistence**: Transactional Outbox + Debezium + Kafka + MongoDB + Sync Worker | 🟢 Concluído | `feature/phase-4-cdc-kafka-mongo` |
-| **Fase 5** | **Observabilidade, Tracing Distribuído & Resiliência**: OpenTelemetry, métricas e pipeline de CI/CD | ⚪ Planejado | `feature/phase-5-observability-ci` |
+| **Fase 5** | **Observabilidade, Tracing Distribuído & Resiliência**: OpenTelemetry W3C TraceContext, Jaeger e DLQ | 🟢 Concluído | `feature/phase-5-observability-resilience` |
 
 ---
 
-## 🏗️ Visão da Arquitetura Completa (Fase 4)
+## 🏗️ Visão da Arquitetura Completa
 
 ```mermaid
 flowchart TD
-    Client([Cliente / Web / Mobile / Postman]) -->|Porta 3000| Gateway[API Gateway - Fastify]
+    Client([Cliente / Web / Mobile / Postman]) -->|Porta 3000| Gateway[API Gateway - Fastify + OTel]
 
     subgraph "Escrita (Commands - Porta 3001)"
-        Gateway -->|POST /products, POST /orders| WS[Write Service]
+        Gateway -->|POST /products, POST /orders| WS[Write Service + OTel]
         WS -->|1. Mesma Transação ACID| PG[(PostgreSQL 16)]
         PG -.-> Tab1[Tabelas: products, orders, order_items]
-        PG -.-> Tab2[Tabela: outbox]
+        PG -.-> Tab2[Tabela: outbox + traceparent]
     end
 
     subgraph "Pipeline Assíncrono de CDC & Mensageria"
         PG -->|2. Streaming do WAL| Deb[Debezium Connect CDC]
         Deb -->|3. Tópico: ecommerce_cdc.public.outbox| K[Apache Kafka KRaft]
-        K -->|4. Consumo Contínuo| SW[Sync Worker - Node.js]
+        K -->|4. Consumo Contínuo| SW[Sync Worker + OTel]
         SW -->|5. Projeção Desnormalizada Idempotente| Mongo[(MongoDB 7 - ecommerce_read)]
+        SW -.->|Falhas / Poison Pills| DLQ[Tópico DLQ: ecommerce.cdc.outbox.dlq]
     end
 
     subgraph "Leitura (Queries - Porta 3002)"
-        Gateway -->|GET /products, GET /orders/:id| RS[Read Service]
+        Gateway -->|GET /products, GET /orders/:id| RS[Read Service + OTel]
         RS -->|6. Consultas Diretas sem JOINs| Mongo
+    end
+
+    subgraph "Observabilidade & Tracing Distribuído"
+        Gateway -.->|OTLP HTTP Traces| Jaeger[Jaeger UI - Porta 16686]
+        WS -.->|OTLP HTTP Traces| Jaeger
+        SW -.->|OTLP HTTP Traces| Jaeger
+        RS -.->|OTLP HTTP Traces| Jaeger
     end
 ```
 
@@ -61,7 +70,7 @@ flowchart TD
 
 ### Opção 1: Executar com Um Comando (Recomendado)
 
-O projeto está configurado no Docker Compose para subir todo o ecossistema distribuído de forma automatizada, incluindo migrações do banco e registro do conector CDC:
+O projeto está configurado no Docker Compose para subir todo o ecossistema distribuído de forma automatizada, incluindo migrações do banco, conector CDC e Jaeger:
 
 ```bash
 docker compose up --build
@@ -69,6 +78,7 @@ docker compose up --build
 
 Serviços disponíveis após inicialização:
 * **API Gateway (Entrada única)**: `http://localhost:3000`
+* **Jaeger Web UI (Tracing Distribuído)**: `http://localhost:16686`
 * **Write Service (Comandos de escrita)**: `http://localhost:3001`
 * **Read Service (Consultas MongoDB)**: `http://localhost:3002`
 * **Debezium Connect REST API**: `http://localhost:8083`
@@ -80,9 +90,9 @@ Serviços disponíveis após inicialização:
 
 ### Opção 2: Execução Manual para Desenvolvimento
 
-1. **Subir os storages e brokers no Docker:**
+1. **Subir os storages, brokers e Jaeger no Docker:**
    ```bash
-   docker compose up -d postgres mongodb kafka debezium debezium-init
+   docker compose up -d postgres mongodb kafka debezium debezium-init jaeger
    ```
 
 2. **Instalar dependências e compilar o monorepo:**
@@ -114,15 +124,25 @@ Serviços disponíveis após inicialização:
 
 ---
 
-## 🧪 Testes Automatizados
+## 🧪 Testes Automatizados & Verificação E2E
 
-O monorepo conta com **23 testes automatizados** cobrindo regras de negócio, transações com outbox, parse de envelopes Debezium CDC, projeções MongoDB e roteamento do Gateway:
+### 1. Testes Unitários e de Integração
+O monorepo conta com **26 testes automatizados** cobrindo regras de negócio, transações com outbox, parse de envelopes Debezium CDC, resiliência com Dead Letter Queue, projeções MongoDB e roteamento do Gateway:
 
 ```bash
 npm test
 ```
 
 Pipeline contínuo configurado no GitHub Actions em [`.github/workflows/ci.yml`](./.github/workflows/ci.yml).
+
+### 2. Verificação Automatizada da Consistência Eventual (E2E)
+Com o ambiente rodando no Docker Compose, execute o script automatizado para comprovar o ciclo completo de sincronização e aferir o lag de replicação em milissegundos:
+
+```bash
+npm run verify:e2e
+```
+
+O script dispara a criação de um produto e um pedido no Gateway, monitora o momento exato em que a projeção desnormalizada reflete no MongoDB e emite um relatório com o lag medido da esteira CDC.
 
 ---
 
@@ -173,6 +193,13 @@ curl "http://localhost:3000/products?search=Teclado&minPrice=100&maxPrice=500"
 curl "http://localhost:3000/orders/<ORDER_ID>"
 ```
 
+### 6. Inspecionar Tracing no Jaeger UI
+Abra seu navegador em:
+```
+http://localhost:16686
+```
+Selecione o serviço `api-gateway` e veja o fluxo da requisição HTTP se desdobrando no Write Service, no Outbox e no Sync Worker.
+
 ---
 
 ## 🏛️ Decisões Arquiteturais (ADRs)
@@ -182,6 +209,7 @@ curl "http://localhost:3000/orders/<ORDER_ID>"
 * [ADR 003 - CQRS a Nível de Código no Mesmo Banco Inicial](./docs/adr/003-cqrs-same-database-first.md)
 * [ADR 004 - API Gateway com Fastify e Proxy Reverso](./docs/adr/004-api-gateway-reverse-proxy.md)
 * [ADR 005 - Eliminação do Dual-Write com Transactional Outbox e Debezium CDC](./docs/adr/005-transactional-outbox-cdc.md)
+* [ADR 006 - Observabilidade com OpenTelemetry, Jaeger e Resiliência com Dead Letter Queue (DLQ)](./docs/adr/006-observability-resilience-dlq.md)
 
 ---
 
