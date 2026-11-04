@@ -18,23 +18,45 @@ export class CreateProductHandler {
       throw new Error('Product stock cannot be negative');
     }
 
-    const product = await this.db.product.create({
-      data: {
-        id: randomUUID(),
-        name: command.name,
-        description: command.description,
-        price: command.price,
-        stock: command.stock,
-      },
-    });
+    const productId = randomUUID();
 
-    return {
-      id: product.id,
-      name: product.name,
-      description: product.description,
-      price: Number(product.price),
-      stock: product.stock,
-      createdAt: product.createdAt,
-    };
+    // Transactional Outbox Pattern: Produto e Evento são gravados sob a mesma transação ACID
+    return await this.db.$transaction(async (tx) => {
+      const product = await tx.product.create({
+        data: {
+          id: productId,
+          name: command.name,
+          description: command.description,
+          price: command.price,
+          stock: command.stock,
+        },
+      });
+
+      await tx.outbox.create({
+        data: {
+          id: randomUUID(),
+          aggregateType: 'Product',
+          aggregateId: product.id,
+          eventType: 'ProductCreated',
+          payload: {
+            id: product.id,
+            name: product.name,
+            description: product.description,
+            price: Number(product.price),
+            stock: product.stock,
+            createdAt: product.createdAt,
+          },
+        },
+      });
+
+      return {
+        id: product.id,
+        name: product.name,
+        description: product.description,
+        price: Number(product.price),
+        stock: product.stock,
+        createdAt: product.createdAt,
+      };
+    });
   }
 }

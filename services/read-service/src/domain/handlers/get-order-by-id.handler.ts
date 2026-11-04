@@ -1,23 +1,14 @@
-import { prisma } from '../../infrastructure/prisma.js';
+import { Db } from 'mongodb';
+import { getMongoDb } from '../../infrastructure/mongo.js';
 import { GetOrderByIdQuery } from '../queries/get-order-by-id.query.js';
 
 export class GetOrderByIdHandler {
-  constructor(private readonly db = prisma) {}
+  constructor(private readonly getDb: () => Promise<Db> = getMongoDb) {}
 
   async execute(query: GetOrderByIdQuery) {
-    const order = await this.db.order.findUnique({
-      where: { id: query.id },
-      include: {
-        items: {
-          include: {
-            product: {
-              select: {
-                name: true,
-              },
-            },
-          },
-        },
-      },
+    const db = await this.getDb();
+    const order = await db.collection('orders').findOne({
+      $or: [{ _id: query.id as any }, { id: query.id }],
     });
 
     if (!order) {
@@ -25,15 +16,14 @@ export class GetOrderByIdHandler {
     }
 
     return {
-      id: order.id,
+      id: order._id ? order._id.toString() : order.id,
       customerName: order.customerName,
       totalAmount: Number(order.totalAmount),
       status: order.status,
       createdAt: order.createdAt,
-      items: order.items.map((item) => ({
+      items: (order.items || []).map((item: any) => ({
         id: item.id,
         productId: item.productId,
-        productName: item.product.name,
         quantity: item.quantity,
         unitPrice: Number(item.unitPrice),
         subtotal: Number(item.unitPrice) * item.quantity,
@@ -41,4 +31,3 @@ export class GetOrderByIdHandler {
     };
   }
 }
-

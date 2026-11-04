@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { CreateOrderHandler } from '../src/domain/handlers/create-order.handler.js';
 
-describe('CreateOrderHandler (CQRS Command Handler with ACID Transaction)', () => {
+describe('CreateOrderHandler (CQRS Command Handler with ACID Transaction & Outbox)', () => {
   it('deve rejeitar pedido sem nome do cliente', async () => {
     const handler = new CreateOrderHandler({} as any);
 
@@ -98,9 +98,10 @@ describe('CreateOrderHandler (CQRS Command Handler with ACID Transaction)', () =
     );
   });
 
-  it('deve processar transação ACID, abater estoque e criar pedido com sucesso', async () => {
+  it('deve processar transação ACID, abater estoque e registrar evento Outbox com sucesso', async () => {
     let stockUpdatedWith: any = null;
     let orderCreatedWith: any = null;
+    let outboxCreatedWith: any = null;
 
     const mockDb = {
       $transaction: async (callback: any) => {
@@ -135,6 +136,12 @@ describe('CreateOrderHandler (CQRS Command Handler with ACID Transaction)', () =
               };
             },
           },
+          outbox: {
+            create: async ({ data }: any) => {
+              outboxCreatedWith = data;
+              return data;
+            },
+          },
         };
         return await callback(tx);
       },
@@ -160,5 +167,12 @@ describe('CreateOrderHandler (CQRS Command Handler with ACID Transaction)', () =
     assert.strictEqual(result.items.length, 1);
     assert.strictEqual(result.items[0].quantity, 3);
     assert.strictEqual(result.items[0].unitPrice, 500);
+
+    // 3. Verificação do Transactional Outbox Pattern
+    assert.ok(outboxCreatedWith, 'Evento outbox deve ter sido gravado');
+    assert.strictEqual(outboxCreatedWith.aggregateType, 'Order');
+    assert.strictEqual(outboxCreatedWith.aggregateId, result.id);
+    assert.strictEqual(outboxCreatedWith.eventType, 'OrderCreated');
+    assert.strictEqual(outboxCreatedWith.payload.totalAmount, 1500);
   });
 });

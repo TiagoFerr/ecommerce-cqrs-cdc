@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { CreateProductHandler } from '../src/domain/handlers/create-product.handler.js';
 
-describe('CreateProductHandler (CQRS Command Handler)', () => {
+describe('CreateProductHandler (CQRS Command Handler with Outbox)', () => {
   it('deve rejeitar produto sem nome', async () => {
     const handler = new CreateProductHandler({} as any);
 
@@ -57,14 +57,27 @@ describe('CreateProductHandler (CQRS Command Handler)', () => {
     );
   });
 
-  it('deve persistir e retornar DTO do produto com sucesso', async () => {
+  it('deve persistir produto e evento Outbox atomicamente na mesma transação', async () => {
+    let outboxCreatedWith: any = null;
+
     const mockDb = {
-      product: {
-        create: async ({ data }: any) => ({
-          ...data,
-          createdAt: new Date('2026-01-01T00:00:00Z'),
-          updatedAt: new Date('2026-01-01T00:00:00Z'),
-        }),
+      $transaction: async (callback: any) => {
+        const tx = {
+          product: {
+            create: async ({ data }: any) => ({
+              ...data,
+              createdAt: new Date('2026-01-01T00:00:00Z'),
+              updatedAt: new Date('2026-01-01T00:00:00Z'),
+            }),
+          },
+          outbox: {
+            create: async ({ data }: any) => {
+              outboxCreatedWith = data;
+              return data;
+            },
+          },
+        };
+        return await callback(tx);
       },
     };
 
@@ -81,5 +94,12 @@ describe('CreateProductHandler (CQRS Command Handler)', () => {
     assert.strictEqual(result.name, 'Monitor UltraWide 34"');
     assert.strictEqual(result.price, 2500);
     assert.strictEqual(result.stock, 5);
+
+    // Validação explícita do Transactional Outbox Pattern
+    assert.ok(outboxCreatedWith, 'Evento outbox deve ter sido gravado');
+    assert.strictEqual(outboxCreatedWith.aggregateType, 'Product');
+    assert.strictEqual(outboxCreatedWith.aggregateId, result.id);
+    assert.strictEqual(outboxCreatedWith.eventType, 'ProductCreated');
+    assert.strictEqual(outboxCreatedWith.payload.name, 'Monitor UltraWide 34"');
   });
 });

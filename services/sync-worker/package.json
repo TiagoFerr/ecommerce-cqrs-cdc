@@ -1,0 +1,21 @@
+{
+  "name": "@ecommerce/sync-worker",
+  "version": "1.0.0",
+  "private": true,
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "test": "tsx --test \"test/**/*.spec.ts\""
+  },
+  "dependencies": {
+    "dotenv": "^18.0.9",
+    "kafkajs": "^2.2.4",
+    "mongodb": "^6.12.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}

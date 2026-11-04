@@ -1,32 +1,34 @@
-import { prisma } from '../../infrastructure/prisma.js';
+import { Db } from 'mongodb';
+import { getMongoDb } from '../../infrastructure/mongo.js';
 import { ListProductsQuery } from '../queries/list-products.query.js';
 
 export class ListProductsHandler {
-  constructor(private readonly db = prisma) {}
+  constructor(private readonly getDb: () => Promise<Db> = getMongoDb) {}
 
   async execute(query: ListProductsQuery) {
-    const where: any = {};
+    const db = await this.getDb();
+    const filter: any = {};
 
     if (query.search) {
-      where.OR = [
-        { name: { contains: query.search, mode: 'insensitive' } },
-        { description: { contains: query.search, mode: 'insensitive' } },
+      filter.$or = [
+        { name: { $regex: query.search, $options: 'i' } },
+        { description: { $regex: query.search, $options: 'i' } },
       ];
     }
 
     if (query.minPrice !== undefined || query.maxPrice !== undefined) {
-      where.price = {};
-      if (query.minPrice !== undefined) where.price.gte = query.minPrice;
-      if (query.maxPrice !== undefined) where.price.lte = query.maxPrice;
+      filter.price = {};
+      if (query.minPrice !== undefined) filter.price.$gte = query.minPrice;
+      if (query.maxPrice !== undefined) filter.price.$lte = query.maxPrice;
     }
 
-    const products = await this.db.product.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-    });
+    const products = await db.collection('products')
+      .find(filter)
+      .sort({ createdAt: -1 })
+      .toArray();
 
     return products.map((product) => ({
-      id: product.id,
+      id: product._id ? product._id.toString() : product.id,
       name: product.name,
       description: product.description,
       price: Number(product.price),
@@ -35,4 +37,3 @@ export class ListProductsHandler {
     }));
   }
 }
-
